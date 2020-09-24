@@ -1,0 +1,288 @@
+## Setting the data.org token and compiling dataset into global environment
+token <- "dwVmzmWVE2jsf10j0xkg9g6IW"
+
+##Reading in Data
+la.arrests.df <- read.socrata("https://data.lacity.org/resource/yru6-6re4.json", app_token = token)
+
+##Changing Variable Names
+la.arrests.df <- la.arrests.df %>%
+  rename(Charge_Description = chrg_desc)
+
+##Creating Three New Variables: Year, Month, Day
+library(lubridate)
+la.arrests.df <- la.arrests.df %>%
+  mutate(Arrest_Date = as.Date(Arrest_Date),
+         year = year(Arrest_Date), month = month(Arrest_Date), day = day(Arrest_Date))
+
+##Aggregating All Arrests - 2010 through 2020
+by_date.df <- aggregate(la.arrests.df$Arrest_Date, by = list(Date = la.arrests.df$Arrest_Date), FUN = length)
+colnames(by_date.df) <- c("Date", "Total")
+
+##Creating 28 and 92-Day Rolling Means/Averages
+la.alldates.rollingmean.df <- by_date.df %>%
+  tq_mutate(
+    select = Total, mutate_fun = rollapply, 
+    width = 28, align = "right", FUN = mean,
+    na.rm  = TRUE,  col_rename = "mean_28"
+  ) %>%
+  tq_mutate(
+    select = Total, mutate_fun = rollapply,
+    width = 92, align = "right", FUN = mean,
+    na.rm = TRUE, col_rename = "mean_92"
+  )
+
+##Plotting 28 and 92-Day Rolling Means/Averages
+simplegraph <- la.alldates.rollingmean.df %>%
+  ggplot(aes(x = Date, y = Total)) +
+  # Data
+  geom_point(alpha = 0.1) +
+  geom_line(aes(y = mean_28), linetype = "solid", size = 1) +
+  geom_line(aes(y = mean_84), linetype = "solid", color = "grey20", size = 1) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", labels = date_format("%Y")) +
+  scale_y_continuous(breaks = seq(0, 700, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##Creating Custom Function for 95% Confidence Band
+function(x, na.rm = TRUE) {
+  # x     = numeric vector
+  # na.rm = boolean, whether or not to remove NA's
+  
+  m  <- mean(x, na.rm = na.rm)
+  s  <- sd(x, na.rm = na.rm)
+  hi <- m + 2*s
+  lo <- m - 2*s
+  
+  ret <- c(mean = m, stdev = s, hi.95 = hi, lo.95 = lo) 
+  return(ret)
+}
+
+##Adding Custom 95% Function to 28-Day Rolling Mean/Average
+all.arrests.df <- by_date.df %>%
+  tq_mutate(
+    select     = Total,
+    mutate_fun = rollapply, 
+    width      = 28,
+    align      = "right",
+    by.column  = FALSE,
+    FUN        = custom_stat_fun_2,
+    na.rm      = TRUE
+  )
+
+##Plotting 95% Interval
+all.arrests.df %>%
+  ggplot(aes(x = Date)) +
+  # Data
+  geom_point(aes(y = Total), color = "black", alpha = 0.5) +
+  geom_ribbon(aes(ymin = lo.95, ymax = hi.95), alpha = .8) +
+  geom_line(aes(y = mean), color = "black", size = 1, alpha = 2) +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", labels = date_format("%Y")) +
+  scale_y_continuous(breaks = seq(0, 700, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##Plotting All Arrests from 2020 through 2020
+library(scales)
+ggplot(data = by_date.df, aes(Date, Total)) +
+  geom_line() +
+  geom_smooth(size = 0.5, color = "white") +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", labels = date_format("%Y")) +
+  scale_y_continuous(breaks = seq(0, 700, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##Filtering for just 2018 Data
+arrests.2018.df <- la.arrests.df %>%
+  filter(year == 2018)
+
+##Aggregating Data
+arrests.2018.df <- aggregate(arrests.2018.df$Arrest_Date, by = list(Date = arrests.2018.df$Arrest_Date), FUN = length)
+colnames(arrests.2018.df) <- c("Date", "Total")
+
+##Plotting 2018 - please note change in scale_x_date
+ggplot(data = arrests.2018.df, aes(Date, Total)) +
+  geom_line(size = 1) +
+  geom_point() +
+  geom_smooth(size = 0.5, color = "white") +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 month", labels = date_format("%m"), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0, 700, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##May 2018 Abnormal Spike
+arrests.may2018.df <- la.arrests.df %>%
+  filter(year == 2018 & month == "5")
+
+##Aggregating for May 2018 Abnormal Spike
+arrests.may2018agg.df <- aggregate(arrests.may2018.df$Arrest_Date, by = list(Date = arrests.may2018.df$Arrest_Date), FUN = length)
+colnames(arrests.may2018agg.df) <- c("Date", "Total")
+
+##Plotting May 2018 - please note change in scale_x_date
+ggplot(data = arrests.may2018agg.df, aes(Date, Total)) +
+  geom_line(size = 1) +
+  geom_point() +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 day", labels = date_format("%d"), expand = c(0,0)) +
+  scale_y_continuous(breaks = seq(0, 700, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##May 30, 2018 Abnormal Spike
+arrests.may30.df <- la.arrests.df %>%
+  filter(year == 2018 & month == "5" & day == "30")
+arrest tapply(arrests.may2018.df$descent_cd, arrests.may2018.df$day, mean, na.rm = T)
+
+##Sorting for Amount By Ethnicity
+arrests.may2018.df %>%
+  group_by(descent_cd) %>%
+  summarise(total = n())
+
+##Filtering For White & African-Americans
+bw.arrests.may30.df <- arrests.may30.df %>%
+  filter(descent_cd %in% c("W", "B"), na.rm = TRUE) %>%
+  group_by(descent_cd, Charge_Description) %>%
+  summarise(Total = n())
+
+##Filtering for Illegal Possession of Shopping Carts Arrests in May 2018
+shoppingcarts.arrests.may2018.df <- arrests.may2018.df %>%
+  filter(Charge_Description %in% c("ILLEGAL POSSESSION OF SHOPPING CART", "ILLEGAL POSSESSION OF SHOPPING CART****"))
+
+
+shoppingcarts.aggregate.df <- aggregate(shoppingcarts.arrests.may2018.df$Charge_Description, by = list(Division = shoppingcarts.arrests.may2018.df$area_desc), FUN = length)
+colnames(shoppingcarts.aggregate.df) <- c("Division", "Total")
+
+##Plotting for Illegal Possession of Shopping Cart by LAPD Division
+ggplot(shoppingcarts.aggregate.df, aes(x = reorder(Division, -Total), Total)) +
+  geom_bar(stat = "identity", width = 0.5, fill = "black") +
+  scale_y_continuous(breaks = seq(0, 65, by = 5)) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353") +
+  xlab("Division")
+
+##Filtering for Central Division
+central.df <- la.arrests.df %>%
+  filter(area_desc == "Central")
+
+##Aggregating for Central Division
+centraldata.df <- aggregate(central.df$Arrest_Date, by = list(Date = central.df$Arrest_Date), FUN = length)
+colnames(centraldata.df) <- c("Date", "Total")
+
+##Plotting Central Division Arrests, 2010 - 2020
+ggplot(data = centraldata.df, aes(Date, Total)) +
+  geom_line() +
+  geom_smooth(size = 0.5, color = "white") +
+  annotate(geom = "text", x = as.Date("2012-07-05"), y = 300,
+           label = "LAPD raids \n Occupy LA \n encampment") +
+  annotate(geom = "point", x = as.Date("2011-11-30"), y = 313, size = 5, shape = 21, fill = "transparent") +
+  annotate(geom = "text", x = as.Date("2015-07-30"), y = 300,
+           label = "LAPD arrest \n Ferguson \n protesters") +
+  annotate(geom = "point", x = as.Date("2014-11-30"), y = 312, size = 5, shape = 21, fill = "transparent") +
+  theme_bw() +
+  scale_x_date(date_breaks = "1 year", labels = date_format("%Y")) +
+  scale_y_continuous(breaks = seq(0, 350, by = 50)) +
+  theme(panel.background=element_rect(fill="#FFFFFF")) +
+  theme(plot.background=element_rect(fill="#FFFFFF")) +
+  theme(panel.border=element_rect(colour="#FFFFFF")) +
+  theme(panel.grid.major=element_line(colour="#D0D0D0",size=.75)) +
+  theme(axis.text.x=element_text(angle = 50, vjust = 0.5,    size=11,colour="#535353",face="bold")) +
+  theme(axis.text.y=element_text(size=11,colour="#535353",face="bold")) +
+  theme(axis.title.y=element_text(size=11,colour="#535353",face="bold",vjust=1.5)) +
+  theme(axis.title.x=element_text(size=11,colour="#535353",face="bold",vjust=-.5)) +
+  geom_hline(yintercept=0,size=1.2,colour="#535353")
+
+##Filtering for Skid Row Coordinates
+skidrow.df <- la.arrests.df %>%
+  filter(lat == "34.0442" & lon == "-118.2439")
+
+##Filtering for May 2018
+skidrow.may2018.df <- skidrow.df %>%
+  filter(year == 2018 & month == "5")
+
+##Creating Subset
+arrest2017.df <- la.arrests.df
+
+##Map Work
+arrest2017.df$lat[arrest2017.df$lat == ''] <- NA
+arrest2017.df <- na.omit(arrest2017.df)
+
+##Map Work
+arrest2017.df$lon[arrest2017.df$lon == ''] <- NA
+arrest2017.df <- na.omit(arrest2017.df)
+
+##Map Work
+location2017.df <- as.data.frame(table(arrest2017.df$lon, arrest2017.df$lat))
+names(location2017.df) <- c('lon', 'lat', 'Frequency')
+
+##Map Work
+location2017.df$lon <- as.numeric(as.character(location2017.df$lon))
+location2017.df$lat <- as.numeric(as.character(location2017.df$lat))
+
+##Map Work
+location2017.df <- subset(location2017.df, Frequency > 0)
+
+##Map Work
+location2017.df <- location2017.df[-c(1),]
+
+##Map Work
+coliseum <- get_map("LA Coliseum", maptype = "satellite", zoom = 15, color = "bw")
+
+##Map Work
+heatmap <- ggmap(coliseum) +
+  stat_density2d(data = location2017.df, aes(x = lon, y = lat, fill = ..density..), geom = 'tile', contour = F, alpha = .5) +
+  scale_fill_viridis(option = "inferno") +
+  theme(text = element_text(color = "#444444")
+        ,legend.position = "none"
+        ,plot.title = element_text(size = 22, face = 'bold')
+        ,plot.subtitle = element_text(size = 12)
+        ,axis.text = element_blank()
+        ,axis.title = element_blank()
+        ,axis.ticks = element_blank())
+
+
+
+
